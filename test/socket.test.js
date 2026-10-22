@@ -76,10 +76,11 @@ test('lobby, partie, fusion, révélation et reconnexion avec 4 onglets', async 
   assert.equal(groups.length, 3);
   assert.equal(groups[0].members, undefined);
   const id = l => groups.find(g => g.label.toLowerCase().startsWith(l)).id;
-  others[0].s.emit('propose', { a: id('chocolat chaud'), b: id('chocolat') === id('chocolat chaud') ? groups[1].id : groups.find(g => g.label === 'chocolat').id });
-  await until(host, s => s.round.proposal);
-  host.s.emit('voteMerge', { yes: true });
-  others[1].s.emit('voteMerge', { yes: true });
+  const choc = groups.find(g => g.label === 'Chocolat chaud').id;
+  const choc2 = groups.find(g => g.label === 'chocolat').id;
+  others[0].s.emit('propose', { a: choc, b: choc2 });
+  const v = await until(host, s => s.round.proposals.length === 1);
+  host.s.emit('reviewMerge', { id: v.round.proposals[0].id, accept: true });
   await until(host, s => s.phase === 'validate' && s.round.groups.length === 2);
   [host, others[0], others[1], c2].forEach(t => t.s.emit('ready'));
 

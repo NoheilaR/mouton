@@ -119,7 +119,7 @@ io.on('connection', socket => {
     if (err) fail(err);
   }));
   on('propose', d => act(() => engine.proposeMerge(room, me.id, str(d.a, 8), str(d.b, 8))));
-  on('voteMerge', d => act(() => engine.voteMerge(room, me.id, d.yes === true)));
+  on('reviewMerge', d => act(() => engine.reviewMerge(room, me.id, Number(d.id), d.accept === true)));
   on('hostMerge', d => act(() => engine.hostMerge(room, me.id, str(d.a, 8), str(d.b, 8))));
   on('ready', () => act(() => engine.ready(room, me.id)));
   on('bite', d => act(() => engine.wolfBite(room, me.id, str(d.target))));

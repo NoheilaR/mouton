@@ -200,12 +200,8 @@ function viewFor(room, you, serverNow = Date.now()) {
     // Validation : les groupes sans les auteurs ni la taille, pour garder le suspense
     if (r.groups && phase === 'validate') {
       round.groups = r.groups.map(g => ({ id: g.id, label: g.label, variants: g.variants.slice(0, 5), mine: g.members.includes(you) }));
-      const pr = r.proposal;
-      round.proposal = pr && {
-        a: pr.a, b: pr.b, byName: pr.byName,
-        yes: pr.yes.size, no: pr.no.size, needed: pr.needed,
-        myVote: pr.yes.has(you) ? 'yes' : pr.no.has(you) ? 'no' : null,
-      };
+      // Demandes de fusion en attente de l'hôte (visibles par tous)
+      round.proposals = r.proposals.map(pr => ({ id: pr.id, a: pr.a, b: pr.b, byName: pr.byName, mine: pr.byId === you }));
       round.merges = r.merges;
       round.ready = r.ready.size;
       round.iAmReady = r.ready.has(you);

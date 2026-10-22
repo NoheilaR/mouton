@@ -287,7 +287,8 @@ input[type="range"]::-moz-range-thumb { width: 26px; height: 26px; border-radius
 .proposal p { margin: 0 0 10px; line-height: 1.35; }
 .proposal .vote-row { display: flex; gap: 10px; }
 .proposal .vote-row .btn { flex: 1; }
-.proposal .tally { font-size: .85rem; color: var(--ink-soft); margin-top: 8px; }
+.proposal .tally { font-size: .85rem; color: var(--ink-soft); margin-top: 4px; }
+.proposal .request + .request { border-top: 2px dashed var(--line); margin-top: 12px; padding-top: 12px; }
 .merge-log { list-style: none; padding: 0; margin: 0 0 12px; font-size: .86rem; color: var(--mint-d); text-align: center; }
 .merge-log li { margin: 4px 0; }
 

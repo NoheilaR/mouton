@@ -362,41 +362,45 @@
     selected = selected.filter(id => ids.has(id));
     const alive = S.me && S.me.alive;
     $('#validateQuestion').textContent = r.question.text;
-    const pr = r.proposal;
+    const host = isHost();
+    const pending = r.proposals || [];
+    const inRequest = new Set(pending.flatMap(pr => [pr.a, pr.b]));
+    const labelOf = id => (r.groups.find(g => g.id === id) || {}).label;
     $('#groupList').innerHTML = r.groups.map(g => {
       const others = g.variants.filter(v => v !== g.label);
-      return `<button type="button" class="group ${selected.includes(g.id) ? 'sel' : ''} ${pr && (pr.a === g.id || pr.b === g.id) ? 'in-vote' : ''}" data-g="${g.id}">
+      return `<button type="button" class="group ${selected.includes(g.id) ? 'sel' : ''} ${inRequest.has(g.id) ? 'in-vote' : ''}" data-g="${g.id}">
         <span class="g-main"><span class="g-label">${esc(g.label)}</span>${others.length ? `<span class="g-variants">aussi : ${others.map(esc).join(', ')}</span>` : ''}</span>
         ${g.mine ? '<span class="g-mine">ta réponse</span>' : ''}
       </button>`;
     }).join('');
-    $('#validateHint').textContent = alive || isHost()
-      ? 'Touche deux réponses qui veulent dire la même chose pour proposer de les fusionner.'
-      : 'Les moutons vivants vérifient les réponses...';
+    $('#validateHint').textContent = host
+      ? 'Tu es l\'hôte : touche deux réponses pour les fusionner, et tranche les demandes des joueurs.'
+      : alive
+        ? 'Faute de frappe, même idée ? Touche deux réponses et demande à l\'hôte de les fusionner.'
+        : 'L\'hôte vérifie les réponses...';
 
     // Boutons d'action quand deux groupes sont choisis
     let actions = '';
     if (selected.length === 2) {
-      if (alive && !pr) actions += '<button type="button" class="btn primary" id="proposeBtn">Proposer la fusion</button>';
-      if (isHost()) actions += '<button type="button" class="btn secondary" id="hostMergeBtn">Fusionner (hôte)</button>';
+      if (host) actions = '<button type="button" class="btn secondary" id="hostMergeBtn">Fusionner</button>';
+      else if (alive) actions = '<button type="button" class="btn primary" id="proposeBtn">Demander à l\'hôte</button>';
     }
     $('#mergeActions').innerHTML = actions;
 
-    // Vote en cours
+    // Demandes en attente : l'hôte accepte ou refuse, les autres voient où ça en est
     const box = $('#proposal');
-    box.classList.toggle('on', !!pr);
-    if (pr) {
-      const la = (r.groups.find(g => g.id === pr.a) || {}).label, lb = (r.groups.find(g => g.id === pr.b) || {}).label;
-      box.innerHTML = `<p><b>${esc(pr.byName)}</b> propose de fusionner<br>« ${esc(la)} » et « ${esc(lb)} »</p>
-        ${alive ? `<div class="vote-row">
-          <button type="button" class="btn yes ${pr.myVote === 'yes' ? 'on' : ''}" data-vote="yes">Oui, pareil</button>
-          <button type="button" class="btn no ${pr.myVote === 'no' ? 'on' : ''}" data-vote="no">Non</button>
-        </div>` : ''}
-        <div class="tally">${pr.yes} oui, ${pr.no} non. Il faut ${pr.needed} oui.</div>`;
-    } else box.innerHTML = '';
+    box.classList.toggle('on', pending.length > 0);
+    const hostName = (playerById(S.hostId) || {}).name || 'l\'hôte';
+    box.innerHTML = pending.map(pr => `<div class="request">
+        <p><b>${pr.mine ? 'Toi' : esc(pr.byName)}</b> : « ${esc(labelOf(pr.a))} » = « ${esc(labelOf(pr.b))} » ?</p>
+        ${host ? `<div class="vote-row">
+          <button type="button" class="btn yes" data-review="${pr.id}" data-accept="1">Oui, pareil</button>
+          <button type="button" class="btn no" data-review="${pr.id}">Non</button>
+        </div>` : `<div class="tally">En attente de ${esc(hostName)}...</div>`}
+      </div>`).join('');
 
     $('#mergeLog').innerHTML = r.merges.map(m =>
-      `<li>✓ « ${esc(m.labels[1])} » rejoint « ${esc(m.labels[0])} »${m.byHost ? ' (hôte)' : ''}</li>`).join('');
+      `<li>✓ « ${esc(m.labels[1])} » rejoint « ${esc(m.labels[0])} » <small>(par ${esc(m.byName)})</small></li>`).join('');
     const ready = $('#readyBtn');
     ready.hidden = !alive;
     ready.disabled = r.iAmReady;
@@ -419,7 +423,10 @@
     if (e.target.id === 'hostMergeBtn') socket.emit('hostMerge', { a, b });
     selected = [];
   };
-  $('#proposal').onclick = e => { const b = e.target.closest('[data-vote]'); if (b) socket.emit('voteMerge', { yes: b.dataset.vote === 'yes' }); };
+  $('#proposal').onclick = e => {
+    const b = e.target.closest('[data-review]');
+    if (b) socket.emit('reviewMerge', { id: Number(b.dataset.review), accept: b.dataset.accept === '1' });
+  };
   $('#readyBtn').onclick = () => socket.emit('ready');
 
   /* ----- Révélation : les moutons se rangent en tas ----- */

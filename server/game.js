@@ -2,7 +2,7 @@
 // Le moteur ne connaît pas Socket.IO : il modifie la room et appelle onUpdate(room) après chaque étape chronométrée.
 //
 // Déroulé d'une manche :
-//   answer (réponses secrètes) -> validate (fusions, 10 s) -> reveal (animation des tas)
+//   answer (réponses secrètes) -> validate (fusions validées par l'hôte, 10 s) -> reveal (animation des tas)
 //   -> results (cœurs perdus) -> manche suivante, ou hunt / huntResult (démasquer le Loup), ou end.
 const { groupAnswers, mergeGroups } = require('./grouping');
 const { buildDeck, shuffle } = require('./questions');
@@ -12,7 +12,8 @@ const MIN_PLAYERS = 2;
 const MIN_PLAYERS_WOLF = 3;     // à 2, le Loup serait immédiatement démasqué
 const MAX_ANSWER = 30;
 const VALIDATE_MS = 10000;
-const PROPOSAL_MIN_MS = 6000;     // une proposition de fusion laisse au moins 6 s pour voter
+const PROPOSAL_MIN_MS = 6000;     // une demande de fusion laisse au moins 6 s à l'hôte pour trancher
+const MAX_PROPOSALS = 12;
 const REVEAL_BASE_MS = 4500;      // intro + final de la révélation
 const REVEAL_PER_GROUP_MS = 1100; // chaque tas qui apparaît
 const RESULTS_MS = 12000;
@@ -110,7 +111,7 @@ function createEngine({ clock = realClock, rng = Math.random, categories = [], o
       aliveIds: aliveIds(room),
       answers: new Map(),       // playerId -> { text, guess }
       groups: null,
-      proposal: null, merges: [], ready: new Set(),
+      proposals: [], nextProposalId: 1, merges: [], ready: new Set(),
       outcome: null, bite: null, applied: false, events: [], private: new Map(),
     };
     schedule(room, room.settings.answerTime * 1000, () => endAnswers(room));
@@ -145,71 +146,74 @@ function createEngine({ clock = realClock, rng = Math.random, categories = [], o
 
   const canAct = (room, id) => room.phase === 'validate' && room.round.aliveIds.includes(id) && !!player(room, id) && isAlive(player(room, id));
 
-  // N'importe quel joueur vivant propose de fusionner deux groupes ; il vote oui d'office.
+  // Un joueur vivant signale « on voulait dire la même chose » : sa demande attend la décision de l'hôte.
+  // Plusieurs demandes peuvent attendre en même temps (une seule par paire de groupes).
   function proposeMerge(room, id, a, b) {
     const r = room.round;
-    if (!canAct(room, id) || r.proposal || a === b) return;
+    if (!canAct(room, id) || a === b || r.proposals.length >= MAX_PROPOSALS) return;
     if (!r.groups.some(g => g.id === a) || !r.groups.some(g => g.id === b)) return;
-    const voters = connectedAlive(room);
-    r.proposal = { a, b, byId: id, byName: player(room, id).name, yes: new Set([id]), no: new Set(), voters, needed: Math.floor(voters.length / 2) + 1 };
+    if (r.proposals.some(pr => (pr.a === a && pr.b === b) || (pr.a === b && pr.b === a))) return;
+    // L'hôte n'a pas besoin de se demander l'autorisation
+    if (room.hostId === id) return doMerge(room, a, b, player(room, id).name);
+    r.proposals.push({ id: r.nextProposalId++, a, b, byId: id, byName: player(room, id).name });
     r.ready.clear();
-    // On laisse le temps de voter
+    // On laisse à l'hôte le temps de trancher
     const left = room.deadline - clock.now();
     if (left < PROPOSAL_MIN_MS) schedule(room, PROPOSAL_MIN_MS, () => toReveal(room));
-    settleProposal(room);
   }
 
-  function voteMerge(room, id, yes) {
-    const pr = room.round && room.round.proposal;
-    if (!canAct(room, id) || !pr || !pr.voters.includes(id)) return;
-    pr.yes.delete(id); pr.no.delete(id);
-    (yes ? pr.yes : pr.no).add(id);
-    settleProposal(room);
-  }
-
-  // Majorité de oui : fusion. Majorité devenue impossible : proposition rejetée.
-  function settleProposal(room) {
-    const r = room.round, pr = r.proposal;
+  // L'hôte accepte ou refuse une demande
+  function reviewMerge(room, id, proposalId, accept) {
+    const r = room.round;
+    if (room.phase !== 'validate' || room.hostId !== id) return;
+    const pr = r.proposals.find(x => x.id === proposalId);
     if (!pr) return;
-    if (pr.yes.size >= pr.needed) {
-      doMerge(room, pr.a, pr.b, pr.byName, false);
-    } else if (pr.voters.length - pr.no.size < pr.needed) {
-      r.proposal = null;
-    }
+    r.proposals = r.proposals.filter(x => x !== pr);
+    if (accept) doMerge(room, pr.a, pr.b, pr.byName);
+    tryEarlyReveal(room);
   }
 
-  function doMerge(room, a, b, byName, byHost) {
+  function doMerge(room, a, b, byName) {
     const r = room.round;
     const ga = r.groups.find(g => g.id === a), gb = r.groups.find(g => g.id === b);
     if (!ga || !gb) return;
     // Le groupe le plus gros garde son id et son libellé
     const [into, from] = ga.members.length >= gb.members.length ? [ga, gb] : [gb, ga];
-    r.merges.push({ labels: [into.label, from.label], byName, byHost });
+    r.merges.push({ labels: [into.label, from.label], byName });
     mergeGroups(r.groups, into.id, from.id);
-    const pr = r.proposal;
-    if (pr && [pr.a, pr.b].some(x => x === a || x === b)) r.proposal = null;
+    // Les demandes qui visaient le groupe absorbé pointent maintenant vers le groupe fusionné
+    for (const pr of r.proposals) {
+      if (pr.a === from.id) pr.a = into.id;
+      if (pr.b === from.id) pr.b = into.id;
+    }
+    r.proposals = r.proposals.filter(pr => pr.a !== pr.b);
     r.ready.clear();
   }
 
-  // L'hôte fusionne sans vote
+  // L'hôte fusionne directement deux groupes
   function hostMerge(room, id, a, b) {
     if (room.phase !== 'validate' || room.hostId !== id || a === b) return;
-    doMerge(room, a, b, player(room, id).name, true);
+    doMerge(room, a, b, player(room, id).name);
   }
 
-  // "C'est bon pour moi" : si tous les vivants connectés sont prêts et qu'aucun vote n'est en cours, on révèle
+  // « C'est bon pour moi » : si tous les vivants connectés sont prêts et qu'aucune demande n'attend l'hôte, on révèle
   function ready(room, id) {
     const r = room.round;
     if (!canAct(room, id)) return;
     r.ready.add(id);
-    if (!r.proposal && connectedAlive(room).every(pid => r.ready.has(pid))) toReveal(room);
+    tryEarlyReveal(room);
+  }
+
+  function tryEarlyReveal(room) {
+    const r = room.round;
+    if (room.phase === 'validate' && !r.proposals.length && connectedAlive(room).every(pid => r.ready.has(pid))) toReveal(room);
   }
 
   /* ---------- Révélation ---------- */
 
   function toReveal(room) {
     const r = room.round;
-    r.proposal = null;
+    r.proposals = [];
     // Groupes définitifs, du plus gros au plus petit
     r.groups.sort((x, y) => y.members.length - x.members.length);
     const wolf = room.wolfId && r.aliveIds.includes(room.wolfId) ? room.wolfId : null;
@@ -400,7 +404,7 @@ function createEngine({ clock = realClock, rng = Math.random, categories = [], o
   }
 
   return {
-    start, answer, proposeMerge, voteMerge, hostMerge, ready, wolfBite, startHunt, huntVote,
+    start, answer, proposeMerge, reviewMerge, hostMerge, ready, wolfBite, startHunt, huntVote,
     skipResults, backToLobby, playerRemoved, playerDisconnected,
     // exposés pour les tests
     endAnswers, toReveal, toResults, endHunt,

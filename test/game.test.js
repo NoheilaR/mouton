@@ -112,41 +112,59 @@ test('tout le monde répond : la validation commence sans attendre le chrono', (
   assert.equal(v.round.groups[0].members, undefined);
 });
 
-test('fusion par vote majoritaire', () => {
-  const ctx = setup();
+test('fusion demandée par un joueur, validée par l’hôte', () => {
+  const ctx = setup(); // A est l'hôte
   const { engine, room } = ctx;
   engine.start(room);
   for (const [id, t] of [['A', 'chocolat chaud'], ['B', 'chocolat'], ['C', 'thé'], ['D', 'thé']]) engine.answer(room, id, t, 0);
   const choc = room.round.groups.find(g => g.label === 'chocolat chaud').id;
   const choc2 = room.round.groups.find(g => g.label === 'chocolat').id;
-  engine.proposeMerge(room, 'A', choc, choc2);
-  assert.equal(room.round.proposal.needed, 3);
-  engine.voteMerge(room, 'B', true);
-  assert.equal(room.round.groups.length, 3); // 2 oui sur 4 : pas encore
-  engine.voteMerge(room, 'C', true);
+  engine.proposeMerge(room, 'B', choc, choc2);
+  engine.proposeMerge(room, 'C', choc2, choc); // même paire : pas de doublon
+  assert.equal(room.round.proposals.length, 1);
+  assert.equal(room.round.groups.length, 3);
+  // Seul l'hôte tranche
+  const pid = room.round.proposals[0].id;
+  engine.reviewMerge(room, 'C', pid, true);
+  assert.equal(room.round.groups.length, 3);
+  assert.deepEqual(viewFor(room, 'C').round.proposals, [{ id: pid, a: choc, b: choc2, byName: 'B', mine: false }]);
+  engine.reviewMerge(room, 'A', pid, true);
   assert.equal(room.round.groups.length, 2);
-  assert.equal(room.round.proposal, null);
+  assert.equal(room.round.proposals.length, 0);
   ctx.clock.advance(VALIDATE_MS);
   ctx.clock.advance(revealMs(2));
   // Deux groupes de 2 ex aequo : personne ne perd
   assert.deepEqual(hearts(room), { A: 3, B: 3, C: 3, D: 3 });
 });
 
-test('fusion rejetée quand la majorité devient impossible, et fusion directe par l’hôte', () => {
+test('l’hôte refuse une demande, ou fusionne directement', () => {
   const ctx = setup();
   const { engine, room } = ctx;
   engine.start(room);
   for (const [id, t] of [['A', 'chat'], ['B', 'chien'], ['C', 'lapin'], ['D', 'lapin']]) engine.answer(room, id, t, 0);
   const [g1, g2, g3] = room.round.groups.map(g => g.id);
   engine.proposeMerge(room, 'B', g2, g3);
-  engine.voteMerge(room, 'A', false);
-  engine.voteMerge(room, 'C', false);
-  assert.equal(room.round.proposal, null);
+  engine.reviewMerge(room, 'A', room.round.proposals[0].id, false);
+  assert.equal(room.round.proposals.length, 0);
   assert.equal(room.round.groups.length, 3);
   engine.hostMerge(room, 'B', g1, g2); // B n'est pas l'hôte
   assert.equal(room.round.groups.length, 3);
   engine.hostMerge(room, 'A', g2, g3);
   assert.equal(room.round.groups.length, 2);
+});
+
+test('une demande en attente empêche la révélation anticipée', () => {
+  const ctx = setup();
+  const { engine, room } = ctx;
+  engine.start(room);
+  for (const [id, t] of [['A', 'chat'], ['B', 'chien'], ['C', 'lapin'], ['D', 'lapin']]) engine.answer(room, id, t, 0);
+  const [g1, g2] = room.round.groups.map(g => g.id);
+  engine.proposeMerge(room, 'B', g1, g2);
+  for (const id of ['A', 'B', 'C', 'D']) engine.ready(room, id);
+  assert.equal(room.phase, 'validate');
+  engine.reviewMerge(room, 'A', room.round.proposals[0].id, false);
+  for (const id of ['A', 'B', 'C', 'D']) engine.ready(room, id);
+  assert.equal(room.phase, 'reveal');
 });
 
 test('le Loup est épargné hors du troupeau, et indiscernable d’un bouclier', () => {
