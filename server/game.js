@@ -8,7 +8,8 @@ const { groupAnswers, mergeGroups } = require('./grouping');
 const { buildDeck, shuffle } = require('./questions');
 const { cleanText, isAlive } = require('./rooms');
 
-const MIN_PLAYERS = 3;
+const MIN_PLAYERS = 2;
+const MIN_PLAYERS_WOLF = 3;     // à 2, le Loup serait immédiatement démasqué
 const MAX_ANSWER = 30;
 const VALIDATE_MS = 10000;
 const PROPOSAL_MIN_MS = 6000;     // une proposition de fusion laisse au moins 6 s pour voter
@@ -73,6 +74,7 @@ function createEngine({ clock = realClock, rng = Math.random, categories = [], o
   function start(room) {
     const present = room.players.filter(p => p.connected);
     if (present.length < MIN_PLAYERS) return `Il faut au moins ${MIN_PLAYERS} joueurs connectés.`;
+    if (room.settings.wolf && present.length < MIN_PLAYERS_WOLF) return `Le Loup demande au moins ${MIN_PLAYERS_WOLF} joueurs : désactive-le ou attends un mouton de plus.`;
     room.deck = buildDeck(categories, room.settings.categories, room.customQuestions, rng);
     if (!room.deck.length) return 'Aucune question : active au moins une catégorie ou propose des questions.';
     for (const p of room.players) {
@@ -406,6 +408,6 @@ function createEngine({ clock = realClock, rng = Math.random, categories = [], o
 }
 
 module.exports = {
-  createEngine, computeOutcome, revealMs, MIN_PLAYERS, MAX_ANSWER,
+  createEngine, computeOutcome, revealMs, MIN_PLAYERS, MIN_PLAYERS_WOLF, MAX_ANSWER,
   VALIDATE_MS, RESULTS_MS, HUNT_MS, HUNT_RESULT_MS, REVEAL_BASE_MS, REVEAL_PER_GROUP_MS,
 };

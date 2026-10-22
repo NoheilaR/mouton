@@ -198,6 +198,7 @@ input:not([type]):focus { border-color: var(--lav); }
 .my-questions li span { flex: 1; }
 .my-questions button { border: 0; background: none; color: var(--ink-soft); font-size: 1.2rem; padding: 0 6px; }
 .sticky-cta { position: sticky; bottom: 0; padding: 12px 0 6px; }
+.sticky-cta .btn:disabled { opacity: 1; background: #f3c4d6; box-shadow: 0 5px 0 #e3a6bd; }
 
 /* ---------- Partie : haut d'écran ---------- */
 .view-game { padding-bottom: 96px; }

@@ -48,10 +48,14 @@ function playRound(ctx, answers) {
   assert.equal(room.phase, 'results');
 }
 
-test('il faut au moins 3 joueurs connectés pour lancer', () => {
-  const { engine, room } = setup(['A', 'B']);
-  assert.match(engine.start(room), /au moins 3/);
-  assert.equal(room.phase, 'lobby');
+test('2 joueurs suffisent, mais le Loup en demande 3', () => {
+  assert.match(setup(['A']).engine.start(setup(['A']).room), /au moins 2/);
+  const ctx = setup(['A', 'B'], { wolf: true });
+  assert.match(ctx.engine.start(ctx.room), /Loup demande au moins 3/);
+  assert.equal(ctx.room.phase, 'lobby');
+  const ok = setup(['A', 'B']);
+  assert.equal(ok.engine.start(ok.room), null);
+  assert.equal(ok.room.phase, 'answer');
 });
 
 test('les réponses ne sont jamais envoyées avant la validation', () => {

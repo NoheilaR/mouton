@@ -174,7 +174,11 @@
         <div class="lp-badges">${p.id === S.hostId ? 'hôte' : ''}${S.questions.byPlayer[p.id] ? ` ✍️${S.questions.byPlayer[p.id]}` : ''}</div>
       </div>`).join('');
     const present = players.filter(p => p.connected).length;
-    $('#lobbyHint').textContent = present < 3 ? `Encore ${plural(3 - present, 'mouton', 'moutons')} pour lancer (3 minimum).` : 'Le troupeau est prêt !';
+    // 2 joueurs suffisent, 3 avec le Loup
+    const min = S.settings.wolf ? 3 : 2;
+    $('#lobbyHint').textContent = present < min
+      ? `Encore ${plural(min - present, 'mouton', 'moutons')} pour lancer (${min} minimum${S.settings.wolf ? ' avec le Loup' : ''}).`
+      : 'Le troupeau est prêt !';
 
     // Réglages : l'hôte modifie, les autres voient
     const st = S.settings;
@@ -195,7 +199,7 @@
 
     const start = $('#startBtn');
     start.hidden = !host;
-    start.disabled = present < 3;
+    start.disabled = present < min;
     const hostName = (playerById(S.hostId) || {}).name;
     $('#startHint').textContent = host ? '' : `En attente de ${hostName || 'l\'hôte'} pour lancer la partie...`;
   }
